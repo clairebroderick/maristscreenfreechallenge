@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Screen-Free Challenge Tracker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        .container {
+            max-width: 600px;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4 sm:p-6 md:p-8">
+
+    <!-- Main Application Container -->
+    <div class="container mx-auto p-6 sm:p-8 bg-white rounded-2xl shadow-xl space-y-6 w-full">
+
+        <!-- Header and Title -->
+        <header class="text-center">
+            <h1 class="text-3xl sm:text-4xl font-bold text-gray-800">Screen-Free Challenge</h1>
+            <p class="text-gray-500 mt-2 text-sm sm:text-base">Log your success and see the leaderboard.</p>
+        </header>
+
+        <!-- Profile Section -->
+        <div class="bg-blue-50 border border-blue-200 text-blue-800 p-4 rounded-lg text-sm sm:text-base shadow-sm">
+            <p class="font-semibold">Your Profile:</p>
+            <p id="user-profile-info" class="mt-1 break-all font-mono text-xs sm:text-sm">
+                <span id="user-display-name" class="font-bold text-base text-gray-800">Loading...</span>
+            </p>
+        </div>
+
+        <!-- Set Display Name Section (Hidden by default) -->
+        <section id="set-name-section" class="space-y-4 hidden">
+            <h2 class="text-xl font-semibold text-gray-800">Choose a Display Name</h2>
+            <form id="name-form" class="space-y-4">
+                <div>
+                    <label for="display-name" class="block text-sm font-medium text-gray-700">Enter your name:</label>
+                    <input type="text" id="display-name" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:ring-blue-500 focus:border-blue-500 p-3 bg-gray-50" required maxlength="20">
+                </div>
+                <button type="submit" class="w-full py-3 px-4 rounded-lg bg-blue-600 text-white font-semibold shadow-md hover:bg-blue-700 transition-colors duration-200">
+                    Save Name
+                </button>
+            </form>
+        </section>
+
+        <!-- Log Success Section (Hidden by default) -->
+        <section id="log-success-section" class="space-y-4 hidden">
+            <h2 class="text-xl font-semibold text-gray-800">Log a Screen-Free Night</h2>
+            <form id="challenge-form" class="space-y-4">
+                <div>
+                    <label for="challenge-date" class="block text-sm font-medium text-gray-700">Date</label>
+                    <input type="date" id="challenge-date" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:ring-green-500 focus:border-green-500 p-3 bg-gray-50" required>
+                </div>
+                <button type="submit" class="w-full py-3 px-4 rounded-lg bg-green-600 text-white font-semibold shadow-md hover:bg-green-700 transition-colors duration-200">
+                    I Did It! Log Success
+                </button>
+            </form>
+        </section>
+
+        <!-- Leaderboard and Progress Section (Hidden by default) -->
+        <section id="leaderboard-section" class="space-y-4 hidden">
+            <hr class="my-6 border-gray-200">
+            <h2 class="text-xl font-semibold text-gray-800">Leaderboard</h2>
+
+            <!-- User's Individual Progress -->
+            <div class="bg-purple-50 border border-purple-200 p-4 rounded-lg shadow-sm">
+                <p class="text-sm sm:text-base font-semibold text-purple-800">Your Progress: <span id="my-count" class="font-bold text-lg">0</span> nights</p>
+            </div>
+
+            <!-- Full Leaderboard List -->
+            <div id="leaderboard-list" class="mt-4 space-y-3 max-h-80 overflow-y-auto">
+                <p class="text-center text-gray-500">Loading leaderboard...</p>
+            </div>
+        </section>
+
+        <!-- Message Box for Alerts -->
+        <div id="message-box" class="hidden p-4 rounded-lg text-sm" role="alert"></div>
+
+    </div>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, setDoc, doc, getDoc, getDocs, where, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Global Variables (Provided by Canvas) ---
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        setLogLevel('debug');
+
+        // --- Firebase Initialization and Authentication ---
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        let userId = null;
+        let displayName = null;
+
+        const showMessage = (message, type) => {
+            const messageBox = document.getElementById('message-box');
+            messageBox.textContent = message;
+            messageBox.className = `p-4 rounded-lg text-sm ${type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'} block`;
+            setTimeout(() => {
+                messageBox.className = 'hidden';
+            }, 3000);
+        };
+
+        const hideAllSections = () => {
+            document.getElementById('set-name-section').classList.add('hidden');
+            document.getElementById('log-success-section').classList.add('hidden');
+            document.getElementById('leaderboard-section').classList.add('hidden');
+        };
+
+        const showLogSuccess = () => {
+            document.getElementById('log-success-section').classList.remove('hidden');
+            document.getElementById('leaderboard-section').classList.remove('hidden');
+        };
+
+        const showSetName = () => {
+            document.getElementById('set-name-section').classList.remove('hidden');
+        };
+
+        // --- User Profile Handling ---
+        const setupUserProfile = async () => {
+            const docRef = doc(db, `/artifacts/${appId}/public/data/user_profiles`, userId);
+            try {
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists()) {
+                    displayName = docSnap.data().name;
+                    document.getElementById('user-display-name').textContent = displayName;
+                    console.log("Found existing display name:", displayName);
+                    showLogSuccess();
+                } else {
+                    console.log("No display name found, prompting user to set one.");
+                    document.getElementById('user-display-name').textContent = 'Not set';
+                    showSetName();
+                }
+            } catch (error) {
+                console.error("Error fetching user profile:", error);
+                showMessage(`Failed to load profile: ${error.message}`, 'error');
+            }
+        };
+
+        document.getElementById('name-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const nameInput = document.getElementById('display-name');
+            const newName = nameInput.value.trim();
+
+            if (!newName) {
+                showMessage('Please enter a name.', 'error');
+                return;
+            }
+
+            try {
+                const docRef = doc(db, `/artifacts/${appId}/public/data/user_profiles`, userId);
+                await setDoc(docRef, { name: newName });
+                displayName = newName;
+                document.getElementById('user-display-name').textContent = displayName;
+                showMessage('Display name saved successfully!', 'success');
+                hideAllSections();
+                showLogSuccess();
+            } catch (error) {
+                console.error("Error setting display name:", error);
+                showMessage(`Failed to save name: ${error.message}`, 'error');
+            }
+        });
+
+        // --- Firebase Auth & Initialization ---
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                userId = user.uid;
+                document.getElementById('user-profile-info').innerHTML = `<span class="font-bold text-base text-gray-800" id="user-display-name">Loading profile...</span>`;
+                console.log("User authenticated:", userId);
+                await setupUserProfile();
+                setupLeaderboardListener();
+            } else {
+                try {
+                    console.log("No user signed in, attempting authentication...");
+                    if (initialAuthToken) {
+                        await signInWithCustomToken(auth, initialAuthToken);
+                        console.log("Signed in with custom token.");
+                    } else {
+                        await signInAnonymously(auth);
+                        console.log("Signed in anonymously.");
+                    }
+                } catch (error) {
+                    console.error("Authentication failed:", error);
+                    showMessage(`Authentication failed: ${error.message}`, 'error');
+                }
+            }
+        });
+
+        // --- Firestore Real-time Leaderboard Listener ---
+        const setupLeaderboardListener = () => {
+            const entriesCollection = `/artifacts/${appId}/public/data/challenge_entries`;
+            const userProfilesCollection = `/artifacts/${appId}/public/data/user_profiles`;
+            const leaderboardList = document.getElementById('leaderboard-list');
+            const myCountSpan = document.getElementById('my-count');
+
+            onSnapshot(collection(db, entriesCollection), async (snapshot) => {
+                console.log("Received a new snapshot from Firestore.");
+                const leaderboard = {};
+                const uniqueUserIds = new Set();
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    const participantId = data.userId;
+                    uniqueUserIds.add(participantId);
+                    if (leaderboard[participantId]) {
+                        leaderboard[participantId]++;
+                    } else {
+                        leaderboard[participantId] = 1;
+                    }
+                });
+
+                // Fetch display names for all unique users on the leaderboard
+                const userNames = new Map();
+                if (uniqueUserIds.size > 0) {
+                    try {
+                        // The 'in' operator for 'where' queries can be used with up to 10 values
+                        // For simplicity, we are fetching all docs here, but a real app
+                        // might need to handle more than 10 unique users.
+                        const profileSnapshot = await getDocs(collection(db, userProfilesCollection));
+                        profileSnapshot.forEach(doc => {
+                            userNames.set(doc.id, doc.data().name);
+                        });
+                    } catch (error) {
+                        console.error("Error fetching user profiles for leaderboard:", error);
+                        showMessage(`Failed to load user names: ${error.message}`, 'error');
+                    }
+                }
+
+                // Clear previous leaderboard display
+                leaderboardList.innerHTML = '';
+                
+                if (Object.keys(leaderboard).length === 0) {
+                    leaderboardList.innerHTML = '<p class="text-center text-gray-500">No one has logged a success yet. Be the first!</p>';
+                    myCountSpan.textContent = '0';
+                    return;
+                }
+
+                const sortedLeaderboard = Object.entries(leaderboard).sort(([, a], [, b]) => b - a);
+                myCountSpan.textContent = leaderboard[userId] || '0';
+                
+                sortedLeaderboard.forEach(([participantId, count]) => {
+                    const isCurrentUser = participantId === userId;
+                    const entryClass = isCurrentUser ? 'bg-blue-100 border-blue-300' : 'bg-gray-50 border-gray-200';
+                    const name = userNames.get(participantId) || 'User ' + participantId.substring(0, 4) + '...';
+
+                    const entryDiv = document.createElement('div');
+                    entryDiv.className = `p-4 rounded-lg shadow-sm border ${entryClass} flex items-center justify-between`;
+                    entryDiv.innerHTML = `
+                        <div>
+                            <p class="font-medium text-gray-900">
+                                <span class="font-bold">${count}</span> Nights
+                            </p>
+                            <p class="text-xs text-gray-500">${name}</p>
+                        </div>
+                    `;
+                    leaderboardList.appendChild(entryDiv);
+                });
+            }, (error) => {
+                console.error("Error fetching leaderboard data:", error);
+                showMessage(`Failed to load leaderboard: ${error.message}`, 'error');
+            });
+        };
+
+        // --- Log Success Form Submission ---
+        document.getElementById('challenge-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
+
+            if (!userId) {
+                showMessage('Please wait while we set up your profile...', 'error');
+                return;
+            }
+
+            const date = document.getElementById('challenge-date').value;
+            if (!date) {
+                showMessage('Please select a date.', 'error');
+                return;
+            }
+
+            try {
+                const entriesCollection = collection(db, `/artifacts/${appId}/public/data/challenge_entries`);
+                await addDoc(entriesCollection, {
+                    userId: userId,
+                    date: date,
+                    timestamp: new Date().toISOString()
+                });
+                showMessage('Success logged! The leaderboard has been updated.', 'success');
+                document.getElementById('challenge-form').reset();
+            } catch (error) {
+                console.error("Error logging success:", error);
+                showMessage(`Failed to log success: ${error.message}`, 'error');
+            }
+        });
+    </script>
+</body>
+</html>
