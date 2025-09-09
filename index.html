@@ -175,6 +175,26 @@
         });
 
         // --- Firebase Auth & Initialization ---
+        // This is the correct pattern for handling authentication outside the onAuthStateChanged listener.
+        const authenticateUser = async () => {
+            try {
+                // If a token is available, try to sign in with it first.
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                    console.log("Signed in with custom token.");
+                } else {
+                    // Otherwise, sign in anonymously for a published app.
+                    await signInAnonymously(auth);
+                    console.log("Signed in anonymously.");
+                }
+            } catch (error) {
+                console.error("Authentication failed:", error);
+                showMessage(`Authentication failed. Please refresh the page.`, 'error');
+                document.getElementById('user-display-name').textContent = 'Error';
+            }
+        };
+
+        // Listen for auth state changes to proceed with the app.
         onAuthStateChanged(auth, async (user) => {
             if (user) {
                 userId = user.uid;
@@ -183,21 +203,11 @@
                 await setupUserProfile();
                 setupLeaderboardListener();
             } else {
-                try {
-                    console.log("No user signed in, attempting authentication...");
-                    if (initialAuthToken) {
-                        await signInWithCustomToken(auth, initialAuthToken);
-                        console.log("Signed in with custom token.");
-                    } else {
-                        await signInAnonymously(auth);
-                        console.log("Signed in anonymously.");
-                    }
-                } catch (error) {
-                    console.error("Authentication failed:", error);
-                    showMessage(`Authentication failed: ${error.message}`, 'error');
-                }
+                console.log("No user signed in. Attempting authentication...");
+                authenticateUser();
             }
         });
+
 
         // --- Firestore Real-time Leaderboard Listener ---
         const setupLeaderboardListener = () => {
@@ -225,9 +235,6 @@
                 const userNames = new Map();
                 if (uniqueUserIds.size > 0) {
                     try {
-                        // The 'in' operator for 'where' queries can be used with up to 10 values
-                        // For simplicity, we are fetching all docs here, but a real app
-                        // might need to handle more than 10 unique users.
                         const profileSnapshot = await getDocs(collection(db, userProfilesCollection));
                         profileSnapshot.forEach(doc => {
                             userNames.set(doc.id, doc.data().name);
